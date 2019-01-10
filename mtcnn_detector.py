@@ -283,9 +283,10 @@ class MtcnnDetector(object):
         input_buf = np.zeros((num_box, 3, 24, 24), dtype=np.float32)
 
         for i in range(num_box):
-            tmp = np.zeros((tmph[i], tmpw[i], 3), dtype=np.uint8)
-            tmp[dy[i]:edy[i]+1, dx[i]:edx[i]+1, :] = img[y[i]:ey[i]+1, x[i]:ex[i]+1, :]
-            input_buf[i, :, :, :] = adjust_input(cv2.resize(tmp, (24, 24)))
+            if (tmph[i] > 0) and (edy[i] >= 0):
+                tmp = np.zeros((tmph[i], tmpw[i], 3), dtype=np.uint8)
+                tmp[dy[i]:edy[i]+1, dx[i]:edx[i]+1, :] = img[y[i]:ey[i]+1, x[i]:ex[i]+1, :]
+                input_buf[i, :, :, :] = adjust_input(cv2.resize(tmp, (24, 24)))
 
         output = self.RNet.predict(input_buf)
 
