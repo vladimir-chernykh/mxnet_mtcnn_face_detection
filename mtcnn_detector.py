@@ -17,11 +17,10 @@ class MtcnnDetector(object):
     """
     def __init__(self,
                  model_folder='.',
-                 minsize = 20,
-                 threshold = [0.6, 0.7, 0.8],
-                 factor = 0.709,
-                 num_worker = 1,
-                 accurate_landmark = False,
+                 minsize=20,
+                 threshold=(0.6, 0.7, 0.8),
+                 factor=0.709,
+                 accurate_landmark=False,
                  ctx=mx.cpu()):
         """
             Initialize the detector
@@ -36,36 +35,27 @@ class MtcnnDetector(object):
                     detect threshold for 3 stages
                 factor: float number
                     scale factor for image pyramid
-                num_worker: int number
-                    number of processes we use for first stage
                 accurate_landmark: bool
                     use accurate landmark localization or not
 
         """
-        self.num_worker = num_worker
         self.accurate_landmark = accurate_landmark
 
         # load 4 models from folder
-        models = ['det1', 'det2', 'det3','det4']
-        models = [ os.path.join(model_folder, f) for f in models]
-        
-        self.PNets = []
-        for i in range(num_worker):
-            workner_net = mx.model.FeedForward.load(models[0], 1, ctx=ctx)
-            self.PNets.append(workner_net)
+        models = ['det1', 'det2', 'det3', 'det4']
+        models = [os.path.join(model_folder, f) for f in models]
 
-        self.Pool = Pool(num_worker)
-
+        self.PNet = mx.model.FeedForward.load(models[0], 1, ctx=ctx)
         self.RNet = mx.model.FeedForward.load(models[1], 1, ctx=ctx)
         self.ONet = mx.model.FeedForward.load(models[2], 1, ctx=ctx)
         self.LNet = mx.model.FeedForward.load(models[3], 1, ctx=ctx)
 
-        self.minsize   = float(minsize)
-        self.factor    = float(factor)
+        self.minsize = float(minsize)
+        self.factor = float(factor)
         self.threshold = threshold
 
-
-    def convert_to_square(self, bbox):
+    @staticmethod
+    def convert_to_square(bbox):
         """
             convert bbox to square
 
@@ -89,7 +79,8 @@ class MtcnnDetector(object):
         square_bbox[:, 3] = square_bbox[:, 1] + max_side - 1
         return square_bbox
 
-    def calibrate_box(self, bbox, reg):
+    @staticmethod
+    def calibrate_box(bbox, reg):
         """
             calibrate bboxes
 
@@ -114,8 +105,8 @@ class MtcnnDetector(object):
         bbox[:, 0:4] = bbox[:, 0:4] + aug
         return bbox
 
- 
-    def pad(self, bboxes, w, h):
+    @staticmethod
+    def pad(bboxes, w, h):
         """
             pad the the bboxes, alse restrict the size of it
 
@@ -144,8 +135,8 @@ class MtcnnDetector(object):
         tmpw, tmph = bboxes[:, 2] - bboxes[:, 0] + 1,  bboxes[:, 3] - bboxes[:, 1] + 1
         num_box = bboxes.shape[0]
 
-        dx , dy= np.zeros((num_box, )), np.zeros((num_box, ))
-        edx, edy  = tmpw.copy()-1, tmph.copy()-1
+        dx, dy = np.zeros((num_box, )), np.zeros((num_box, ))
+        edx, edy = tmpw.copy()-1, tmph.copy()-1
 
         x, y, ex, ey = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
 
@@ -168,23 +159,7 @@ class MtcnnDetector(object):
         return_list = [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph]
         return_list = [item.astype(np.int32) for item in return_list]
 
-        return  return_list
-
-    def slice_index(self, number):
-        """
-            slice the index into (n,n,m), m < n
-        Parameters:
-        ----------
-            number: int number
-                number
-        """
-        def chunks(l, n):
-            """Yield successive n-sized chunks from l."""
-            for i in range(0, len(l), n):
-                yield l[i:i + n]
-        num_list = list(range(number))
-        return list(chunks(num_list, self.num_worker))
-        
+        return return_list
 
     def detect_face(self, img):
         """
@@ -215,7 +190,7 @@ class MtcnnDetector(object):
         total_boxes = []
 
         height, width, _ = img.shape
-        minl = min( height, width)
+        minl = min(height, width)
 
         # get all the valid scales
         scales = []
@@ -230,20 +205,16 @@ class MtcnnDetector(object):
         #############################################
         # first stage
         #############################################
-        #for scale in scales:
-        #    return_boxes = self.detect_first_stage(img, scale, 0)
-        #    if return_boxes is not None:
-        #        total_boxes.append(return_boxes)
-        
-        sliced_index = self.slice_index(len(scales))
-        total_boxes = []
-        for batch in sliced_index:
-            local_boxes = self.Pool.map( detect_first_stage_warpper, \
-                    zip(repeat(img), self.PNets[:len(batch)], [scales[i] for i in batch], repeat(self.threshold[0])) )
-            total_boxes.extend(local_boxes)
-        
+        # for scale in scales:
+        #     return_boxes = self.detect_first_stage(img, scale, 0)
+        #     if return_boxes is not None:
+        #         total_boxes.append(return_boxes)
+
+        total_boxes = [detect_first_stage_warpper((img, self.PNet, scale, self.threshold[0]))
+                       for scale in scales]
+
         # remove the Nones 
-        total_boxes = [ i for i in total_boxes if i is not None]
+        total_boxes = [i for i in total_boxes if i is not None]
 
         if len(total_boxes) == 0:
             return None
